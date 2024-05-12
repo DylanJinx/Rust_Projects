@@ -1,4 +1,4 @@
-use std::ptr::NonNull;
+use std::ptr::{self, NonNull};
 use std::mem;
 use std::alloc::{self, Layout};
 
@@ -52,6 +52,28 @@ impl<T> Vec<T> {
         self.cap = new_cap;
     }
 
+    pub fn push(&mut self, elem: T) {
+        if self.len == self.cap { self.grow();}
+
+        unsafe {
+            ptr::write(self.ptr.as_ptr().add(self.len), elem);
+        }
+
+        // 不可能出错，因为出错之前一定会 OOM (out of memory)
+        // 如果 `self.grow()` 不能成功扩展内存（可能因为内存耗尽），程序将在那一步失败。因此，在 `ptr::write` 之后增加 `self.len` 被认为是安全的，因为内存空间已经通过 `grow` 方法保证了
+        self.len += 1;
+    }
+
+    pub fn pop(&mut self) -> Option<T> {
+        if self.len == 0 {
+            None
+        } else {
+            self.len -= 1;
+            unsafe {
+                Some(ptr::read(self.ptr.as_ptr().add(self.len)))
+            }
+        }
+    }
 }
 
 fn main() {
