@@ -97,11 +97,31 @@ impl<T> MyVec<T> {
         self.len += 1;
     }
 
+    pub fn remove(&mut self, index: usize) -> T {
+        // 检查索引是否越界, 0 <= index < self.len
+        assert!(index < self.len, "index out of bounds");
+
+        let remove_elem;
+
+        unsafe {
+            self.len -= 1;
+            remove_elem = ptr::read(self.ptr.as_ptr().add(index));
+            ptr::copy(
+                self.ptr.as_ptr().add(index + 1),
+                self.ptr.as_ptr().add(index),
+                self.len - index,
+            );
+        }
+
+        remove_elem
+    }
+
 }
 
 impl<T> Drop for MyVec<T> {
     fn drop(&mut self) {
-        if self.cap !=0 {
+        if self.cap != 0 {
+            println!("要开始释放内存咯！");
             while let Some(_) = self.pop() { }
             let layout = Layout::array::<T>(self.cap).unwrap();
             unsafe {
@@ -129,7 +149,7 @@ impl<T> DerefMut for MyVec<T> {
 }
 
 fn main() {
-
+    println!("----------------------------------------12345. new、push、pop、drop、deref ------------------------------------");
     let mut v = MyVec::new(); // 创建一个空的 MyVec
 
     // 添加元素
@@ -188,5 +208,32 @@ fn main() {
         println!("{i} : {}", item);
         i = i + 1;
     }
+
+    println!("Before drop: {:?}", &*inter_v);
+    println!("Before drop: {:?}", inter_v);
+
+    // 手动释放内存
+    drop(inter_v);
+    // println!("After drop: {:?}", &*inter_v); // inter_v 已经被 drop 了，这里会报错
+    // println!("After drop: {:?}", inter_v); // inter_v 已经被 drop 了，这里会报错
+
+    println!("-----------------------------------------------6. insert and remove -----------------------------------------------");
+    // 插入和删除元素
+    let mut v_6 = MyVec::new();
+    v_6.push(1);
+    v_6.push(2);
+    v_6.push(3);
+    v_6.push(4);
+
+    println!("Before insert: {:?}", &*v_6); // Before insert: [1, 2, 3, 4]
+    println!("Before insert: {:?}", v_6); //After insert: MyVec { ptr: 0x2259113c810, len: 4, cap: 4 }
+    
+    v_6.insert(2, 10);
+    println!("After insert: {:?}", &*v_6); // After insert: [1, 2, 10, 3, 4]
+    println!("After insert: {:?}", v_6); //After insert: MyVec { ptr: 0x2259113c810, len: 5, cap: 8 }，扩容了
+
+    v_6.remove(1);
+    println!("After remove: {:?}", &*v_6); // After remove: [1, 10, 3, 4]
+    println!("After remove: {:?}", v_6); //After remove: MyVec { ptr: 0x2259113c810, len: 4, cap: 8 }，因为没有使用调用了如 shrink_to_fit 的方法，所以不会缩减 Vec 的内存容量
 
 }
