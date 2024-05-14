@@ -76,6 +76,27 @@ impl<T> MyVec<T> {
             }
         }
     }
+
+    pub fn insert(&mut self, index: usize, elem: T) {
+        // 检查索引是否越界, 0 <= index <= self.len
+        assert!(index <= self.len, "index out of bounds");
+        
+        // 如果当前元素个数等于容量，需要扩容
+        if self.len == self.cap { self.grow(); }
+
+        unsafe {
+            // ptr::copy(src, dest, len) 的含义： "从 src 复制连续的 len 个元素到 dest "
+            ptr::copy(
+                self.ptr.as_ptr().add(index), // 将指针从指向数组的首元素移动到索引为 index 的元素
+                self.ptr.as_ptr().add(index + 1),
+                self.len - index,
+            );
+            ptr::write(self.ptr.as_ptr().add(index), elem);
+        }
+
+        self.len += 1;
+    }
+
 }
 
 impl<T> Drop for MyVec<T> {
