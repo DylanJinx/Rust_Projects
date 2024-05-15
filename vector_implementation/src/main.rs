@@ -181,7 +181,23 @@ impl<T> IntoIterator for MyVec<T> {
 
 impl<T> Iterator for MyIntoIter<T> {
     type Item = T;
-    fn next(&mut self) -> Option<T> {todo!()}
+    fn next(&mut self) -> Option<T> {
+        if self.start == self.end {
+            None
+        } else {
+            unsafe {
+                let result = ptr::read(self.start);
+                self.start = self.start.offset(1);
+                Some(result)
+            }
+        }
+    }
+
+    
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let len = (self.end as usize - self.start as usize) / mem::size_of::<T>();
+        (len, Some(len))
+    }
 }
 
 fn main() {
