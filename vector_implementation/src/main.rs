@@ -1,5 +1,5 @@
 use std::ptr::{self, NonNull};
-use std::mem;
+use std::mem::{self, ManuallyDrop};
 use std::alloc::{self, Layout};
 use std::ops::{Deref, DerefMut};
 
@@ -148,6 +148,42 @@ impl<T> DerefMut for MyVec<T> {
     }
 }
 
+
+pub struct MyIntoIter<T> {
+    buf: NonNull<T>,
+    cap: usize,
+    start: *const T,
+    end: *const T,  
+}
+
+impl<T> IntoIterator for MyVec<T> {
+    type Item = T;
+    type IntoIter = MyIntoIter<T>;
+    fn into_iter(self) -> MyIntoIter<T> {
+        let vec = ManuallyDrop::new(self);
+
+        let ptr = vec.ptr;
+        let cap = vec.cap;
+        let len = vec.len;
+
+        MyIntoIter {
+            buf: ptr,
+            cap,
+            start: ptr.as_ptr(),
+            end: if cap == 0 {
+                ptr.as_ptr()
+            } else {
+                unsafe { ptr.as_ptr().add(len) }
+            },
+        }
+    }
+}
+
+impl<T> Iterator for MyIntoIter<T> {
+    type Item = T;
+    fn next(&mut self) -> Option<T> {todo!()}
+}
+
 fn main() {
     println!("----------------------------------------12345. new、push、pop、drop、deref ------------------------------------");
     let mut v = MyVec::new(); // 创建一个空的 MyVec
@@ -202,7 +238,24 @@ fn main() {
 
     // 直接在MyVec上迭代
     // &*v 首先使用 * 解引用 v 到 [T] 类型的切片，然后 & 重新取得这个切片的不可变引用。这让整个结构变为 &[T]，是一个指向切片的引用，可以直接在 for 循环中迭代。
-    // 这里的解引用是通过 Deref 特质实现的，这种机制允许 MyVec<T> 的实例直接访问 [T] 上定义的方法和特质实现，包括用于迭代的 IntoIterator。
+    // 这里的解引用是通过 Deref 特质实现的，这种机制允许 MyVec<T> 的实例直接访问 [T] 上定义的方法和特质实现，包括用于迭代的 iter()、iter_mut()、into_iter()，因为[T]实现了IntoIterator特质。
+    let mut i = 0;
+    for item in inter_v.iter() {       
+        println!("{i} : {}", item);
+        i = i + 1;
+    }
+    let mut i = 0;
+    for item in inter_v.iter_mut() {       
+        println!("{i} : {}", item);
+        i = i + 1;
+    }
+    // let mut i = 0;
+    // for item in inter_v.into_iter() {       
+    //     println!("{i} : {}", item);
+    //     i = i + 1;
+    // }
+
+    // 直接使用&[T]
     let mut i = 0;
     for item in &*inter_v {       
         println!("{i} : {}", item);
