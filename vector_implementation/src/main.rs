@@ -4,39 +4,41 @@ use std::alloc::{self, Layout};
 use std::ops::{Deref, DerefMut};
 
 #[derive(Debug)]
-pub struct MyVec<T> {
-    ptr: NonNull<T>, //指向分配的指针
-    len: usize, // 已经初始化的元素个数
-    cap: usize, // 分配的内存空间大小
+pub struct RawVec<T> {
+    ptr: NonNull<T>,
+    cap: usize,
 }
 
-unsafe impl<T: Send> Send for MyVec<T> {}
-unsafe impl<T: Sync> Sync for MyVec<T> {}
+unsafe impl<T: Send> Send for RawVec<T> {}
+unsafe impl<T: Sync> Sync for RawVec<T> {}
 
-impl<T> MyVec<T> {
+impl<T> RawVec<T> {
     pub fn new() -> Self {
-        assert!(mem::size_of::<T>() != 0, "We're not ready to handle ZSTs"); // if mem::size_of::<T>() == 0, panic: We're not ready to handle ZSTs
-        MyVec {
+        // 暂时不支持 ZST：Zero Sized Type
+        assert!(mem::size_of::<T>() != 0, "TODO: implement ZST support");
+
+        RawVec {
             ptr: NonNull::dangling(),
-            len: 0,
             cap: 0,
         }
     }
 
     fn grow(&mut self) {
-        // 计算新的容量大小
-        let (new_cap, new_layout) = if self.cap == 0 {
-            (1, Layout::array::<T>(1).unwrap())
+        // 保证新申请的内存没有超出 isize 的最大值
+        let new_cap = if self.cap == 0 {
+            1
         } else {
-            let new_cap = self.cap * 2;
-            let new_layout = Layout::array::<T>(new_cap).unwrap();
-            (new_cap, new_layout)
+            self.cap * 2
         };
 
-        // 再次检查是否溢出
+        // `Layout::array` 会检查申请的空间是否小于等于 usize::MAX，
+        // 但是因为 old_layout.size() <= isize::MAX，
+        // 所以这里的 unwrap 永远不可能失败
+        let new_layout = Layout::array::<T>(new_cap).unwrap(); 
+
+        // 保证新申请的内存没有超出 `isize::MAX` 字节
         assert!(new_layout.size() <= isize::MAX as usize, "Allocation too large");
-        
-        // 内存分配
+
         let new_ptr = if self.cap == 0 {
             unsafe { alloc::alloc(new_layout) }
         } else {
@@ -45,20 +47,65 @@ impl<T> MyVec<T> {
             unsafe { alloc::realloc(old_ptr, old_layout, new_layout.size()) }
         };
 
-        // 如果分配失败，则终止程序
+        // 如果分配失败，`new_ptr` 就会成为空指针，我们需要对应 abort 的操作
         self.ptr = match NonNull::new(new_ptr as *mut T) {
-            Some(ptr) => ptr,
+            Some(p) => p,
             None => alloc::handle_alloc_error(new_layout),
         };
-
         self.cap = new_cap;
     }
+}
+
+impl<T> Drop for RawVec<T> {
+    fn drop(&mut self) {
+        if self.cap != 0 {
+            println!("RawVec要开始释放内存咯！");
+            let layout = Layout::array::<T>(self.cap).unwrap();
+            unsafe {
+                alloc::dealloc(self.ptr.as_ptr() as *mut u8, layout);
+            }
+        }
+    
+    }
+}
+
+#[derive(Debug)]
+pub struct MyVec<T> {
+    buf: RawVec<T>, // 指向分配的内存
+    // ptr: NonNull<T>, //指向分配的指针
+    // cap: usize, // 分配的内存空间大小
+    len: usize, // 已经初始化的元素个数
+}
+
+unsafe impl<T: Send> Send for MyVec<T> {}
+unsafe impl<T: Sync> Sync for MyVec<T> {}
+
+impl<T> MyVec<T> {
+    // 将push/pop/insert/remove中的self.ptr.as_ptr() 变成 调用方法 self.ptr()
+    fn ptr(&self) -> *mut T {
+        self.buf.ptr.as_ptr()
+    }
+
+    // 将push/pop/insert/remove中的self.cap 变成 调用方法 self.cap()
+    fn cap(&self) -> usize {
+        self.buf.cap
+    }
+
+    pub fn new() -> Self {
+        MyVec {
+            buf: RawVec::new(),
+            len: 0,
+        }
+    }
+
+    // MyVec<T> 的 self.grow() 现在由 RawVec<T> 的 self.buf.grow() 实现
+    //fn grow(&mut self) { ... }
 
     pub fn push(&mut self, elem: T) {
-        if self.len == self.cap { self.grow();}
+        if self.len == self.cap() { self.buf.grow();}
 
         unsafe {
-            ptr::write(self.ptr.as_ptr().add(self.len), elem);
+            ptr::write(self.ptr().add(self.len), elem);
         }
 
         // 不可能出错，因为出错之前一定会 OOM (out of memory)
@@ -72,7 +119,7 @@ impl<T> MyVec<T> {
         } else {
             self.len -= 1;
             unsafe {
-                Some(ptr::read(self.ptr.as_ptr().add(self.len)))
+                Some(ptr::read(self.ptr().add(self.len)))
             }
         }
     }
@@ -82,16 +129,16 @@ impl<T> MyVec<T> {
         assert!(index <= self.len, "index out of bounds");
         
         // 如果当前元素个数等于容量，需要扩容
-        if self.len == self.cap { self.grow(); }
+        if self.len == self.cap() { self.buf.grow(); }
 
         unsafe {
             // ptr::copy(src, dest, len) 的含义： "从 src 复制连续的 len 个元素到 dest "
             ptr::copy(
-                self.ptr.as_ptr().add(index), // 将指针从指向数组的首元素移动到索引为 index 的元素
-                self.ptr.as_ptr().add(index + 1),
+                self.ptr().add(index), // 将指针从指向数组的首元素移动到索引为 index 的元素
+                self.ptr().add(index + 1),
                 self.len - index,
             );
-            ptr::write(self.ptr.as_ptr().add(index), elem);
+            ptr::write(self.ptr().add(index), elem);
         }
 
         self.len += 1;
@@ -105,10 +152,10 @@ impl<T> MyVec<T> {
 
         unsafe {
             self.len -= 1;
-            remove_elem = ptr::read(self.ptr.as_ptr().add(index));
+            remove_elem = ptr::read(self.ptr().add(index));
             ptr::copy(
-                self.ptr.as_ptr().add(index + 1),
-                self.ptr.as_ptr().add(index),
+                self.ptr().add(index + 1),
+                self.ptr().add(index),
                 self.len - index,
             );
         }
@@ -120,13 +167,14 @@ impl<T> MyVec<T> {
 
 impl<T> Drop for MyVec<T> {
     fn drop(&mut self) {
-        if self.cap != 0 {
+        if self.cap() != 0 {
             println!("MyVec要开始释放内存咯！");
             while let Some(_) = self.pop() { }
-            let layout = Layout::array::<T>(self.cap).unwrap();
-            unsafe {
-                alloc::dealloc(self.ptr.as_ptr() as *mut u8, layout);
-            }
+            // 释放内存的操作将由 RawVec 的 Drop 负责
+                // let layout = Layout::array::<T>(self.cap()).unwrap();
+                // unsafe {
+                //     alloc::dealloc(self.ptr() as *mut u8, layout);
+                // }
         }
     }
 }
@@ -135,7 +183,7 @@ impl<T> Deref for MyVec<T> {
     type Target = [T];
     fn deref(&self) -> &Self::Target {
         unsafe {
-            std::slice::from_raw_parts(self.ptr.as_ptr(), self.len)
+            std::slice::from_raw_parts(self.ptr(), self.len) // 由self.ptr.as_ptr() 变成 调用方法 self.ptr()
         }
     }
 }
@@ -143,15 +191,16 @@ impl<T> Deref for MyVec<T> {
 impl<T> DerefMut for MyVec<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         unsafe {
-            std::slice::from_raw_parts_mut(self.ptr.as_ptr(), self.len)
+            std::slice::from_raw_parts_mut(self.ptr(), self.len) //// 由self.ptr.as_ptr() 变成 调用方法 self.ptr()
         }
     }
 }
 
 
 pub struct MyIntoIter<T> {
-    buf: NonNull<T>,
-    cap: usize,
+    _buf: RawVec<T>, // 实际上并不关心这个，只需要他们保证分配的空间不被释放
+        // buf: NonNull<T>,
+        // cap: usize,
     start: *const T,
     end: *const T,  
 }
@@ -160,21 +209,22 @@ impl<T> IntoIterator for MyVec<T> {
     type Item = T;
     type IntoIter = MyIntoIter<T>;
     fn into_iter(self) -> MyIntoIter<T> {
-        let vec = ManuallyDrop::new(self);
+        // 需要使用 ptr::read 非安全地把 buf 移出，因为它没有实现 Copy，
+        // 而且 Vec 实现了 Drop Trait (因此我们不能销毁它)
+        let buf = unsafe { ptr::read(&self.buf) };
+        let len = self.len;
 
-        let ptr = vec.ptr;
-        let cap = vec.cap;
-        let len = vec.len;
+        mem::forget(self); // 避免调用 drop 方法
 
         MyIntoIter {
-            buf: ptr,
-            cap,
-            start: ptr.as_ptr(),
-            end: if cap == 0 {
-                ptr.as_ptr()
+            //cap,
+            start: buf.ptr.as_ptr(),
+            end: if buf.cap == 0 {
+                buf.ptr.as_ptr()
             } else {
-                unsafe { ptr.as_ptr().add(len) }
+                unsafe { buf.ptr.as_ptr().add(len) }
             },
+            _buf: buf, //_buf的赋值要在start和end之后，因为start和end是从buf中获取的；这里的赋值会move buf的所有权
         }
     }
 }
@@ -218,14 +268,17 @@ impl<T> DoubleEndedIterator for MyIntoIter<T> {
 // MyIntoIter_Drop
 impl<T> Drop for MyIntoIter<T> {
     fn drop(&mut self) {
-        if self.cap != 0 {
+        if self._buf.cap != 0 {
             // 将剩下的元素drop
             println!("MyIntoIter要开始释放内存咯！");
-            for _ in &mut *self {}
-            let layout = Layout::array::<T>(self.cap).unwrap();
-            unsafe {
-                alloc::dealloc(self.buf.as_ptr() as *mut u8, layout);
-            }
+            //我们只需要确保 Vec 中所有元素都被读取了，
+            for _ in &mut *self { println!("正在释放未读取元素的内存！");}
+
+            // 释放内存的操作将由 RawVec 的 Drop 负责
+                // let layout = Layout::array::<T>(self._buf.cap).unwrap();
+                // unsafe {
+                // alloc::dealloc(self._buf.ptr.as_ptr() as *mut u8, layout);
+                // }
         }
     }
 }
