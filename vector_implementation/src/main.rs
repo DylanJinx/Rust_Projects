@@ -70,6 +70,60 @@ impl<T> Drop for RawVec<T> {
     }
 }
 
+struct RawValIter<T> {
+    start: *const T,
+    end: *const T,
+}
+
+impl<T> RawValIter<T> {
+    unsafe fn new(slice: &MyVec<T>) -> Self {
+        RawValIter {
+            start: slice.as_ptr(),
+            end: if slice.cap() == 0 {
+                slice.ptr()
+            } else {
+                slice.as_ptr().add(slice.len())
+            },
+        }
+    }
+}
+
+// 向前迭代
+impl<T> Iterator for RawValIter<T> {
+    type Item = T;
+    fn next(&mut self) -> Option<T> {
+        if self.start == self.end {
+            None
+        } else {
+            unsafe {
+                let result = ptr::read(self.start);
+                self.start = self.start.offset(1);
+                Some(result)
+            }
+        }
+    }
+
+    // size_hint 方法返回一个元组，包含了迭代器的最小和最大元素数量的估计值。这个方法是为了帮助标准库中的一些方法进行性能优化的，例如 Vec 的 iter() 方法会根据 size_hint 的返回值来决定是否使用 memcpy 来提高性能。
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let len = (self.end as usize - self.start as usize) / mem::size_of::<T>();
+        (len, Some(len))
+    }
+}
+
+// 向后迭代
+impl<T> DoubleEndedIterator for RawValIter<T> {
+    fn next_back(&mut self) -> Option<T> {
+        if self.start == self.end {
+            None
+        } else {
+            unsafe {
+                self.end = self.end.offset(-1);
+                Some(ptr::read(self.end))
+            }
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct MyVec<T> {
     buf: RawVec<T>, // 指向分配的内存
@@ -164,13 +218,31 @@ impl<T> MyVec<T> {
         remove_elem
     }
 
+    pub fn drain(&mut self) -> Drain<T> {
+        let iter = unsafe {RawValIter::new(&self)};
+
+        // 通过将长度设为 0，Vec<T> 本质上不再认为自己拥有任何元素。即使其底层内存（由 RawVec<T> 管理）还没有被释放，Vec<T> 也不会在其生命周期结束时尝试释放这些内存。这是因为只有当长度大于 0 时，Vec<T> 的析构函数才会处理内存释放。
+        // 避免双重释放
+        // 虽然Drain可能会mem::forget，导致内存泄露，但是这个错误比双重释放要轻，这通常被视为相对安全的失败模式
+        self.len = 0;
+
+        Drain {
+            iter : iter,
+            vec: PhantomData,
+        }
+    }
+
 }
 
 impl<T> Drop for MyVec<T> {
     fn drop(&mut self) {
         if self.cap() != 0 {
             println!("MyVec要开始释放内存咯！");
-            while let Some(_) = self.pop() { }
+            let mut i = 0;
+            while let Some(_) = self.pop() {
+                println!("MyVec.drop pop: {:?}", i);
+                i += 1;
+             }
             // 释放内存的操作将由 RawVec 的 Drop 负责
                 // let layout = Layout::array::<T>(self.cap()).unwrap();
                 // unsafe {
@@ -180,6 +252,7 @@ impl<T> Drop for MyVec<T> {
     }
 }
 
+//Deref 特质使对象能够通过 * 运算符被解引用，并且能够隐式地转换为一个引用指向的类型。当你通过 & 符号取得一个实现了 Deref 特质的类型的引用时，Rust 会自动地使用 Deref 的实现来将 &Type 转换为 &Target
 impl<T> Deref for MyVec<T> {
     type Target = [T];
     fn deref(&self) -> &Self::Target {
@@ -189,10 +262,11 @@ impl<T> Deref for MyVec<T> {
     }
 }
 
+// DerefMut 特质使对象能够通过 * 运算符被解引用为可变引用，并支持类型的自动转换。实现了 DerefMut 的对象在使用 &mut 获取引用时，可以自动转换为 &mut Target
 impl<T> DerefMut for MyVec<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         unsafe {
-            std::slice::from_raw_parts_mut(self.ptr(), self.len) //// 由self.ptr.as_ptr() 变成 调用方法 self.ptr()
+            std::slice::from_raw_parts_mut(self.ptr(), self.len) // 由self.ptr.as_ptr() 变成 调用方法 self.ptr()
         }
     }
 }
@@ -202,8 +276,9 @@ pub struct MyIntoIter<T> {
     _buf: RawVec<T>, // 实际上并不关心这个，只需要他们保证分配的空间不被释放
         // buf: NonNull<T>,
         // cap: usize,
-    start: *const T,
-    end: *const T,  
+    iter: RawValIter<T>,
+        // start: *const T,
+        // end: *const T,  
 }
 
 impl<T> IntoIterator for MyVec<T> {
@@ -213,18 +288,19 @@ impl<T> IntoIterator for MyVec<T> {
         // 需要使用 ptr::read 非安全地把 buf 移出，因为它没有实现 Copy，
         // 而且 Vec 实现了 Drop Trait (因此我们不能销毁它)
         let buf = unsafe { ptr::read(&self.buf) };
-        let len = self.len;
+        let iter = unsafe { RawValIter::new(&self) };
 
         mem::forget(self); // 避免调用 drop 方法
 
         MyIntoIter {
+            iter: iter,
             //cap,
-            start: buf.ptr.as_ptr(),
-            end: if buf.cap == 0 {
-                buf.ptr.as_ptr()
-            } else {
-                unsafe { buf.ptr.as_ptr().add(len) }
-            },
+            // start: buf.ptr.as_ptr(),
+            // end: if buf.cap == 0 {
+            //     buf.ptr.as_ptr()
+            // } else {
+            //     unsafe { buf.ptr.as_ptr().add(len) }
+            // },
             _buf: buf, //_buf的赋值要在start和end之后，因为start和end是从buf中获取的；这里的赋值会move buf的所有权
         }
     }
@@ -234,35 +310,19 @@ impl<T> IntoIterator for MyVec<T> {
 impl<T> Iterator for MyIntoIter<T> {
     type Item = T;
     fn next(&mut self) -> Option<T> {
-        if self.start == self.end {
-            None
-        } else {
-            unsafe {
-                let result = ptr::read(self.start);
-                self.start = self.start.offset(1);
-                Some(result)
-            }
-        }
+        self.iter.next()
     }
 
-    
+    // size_hint 方法返回一个元组，包含了迭代器的最小和最大元素数量的估计值。这个方法是为了帮助标准库中的一些方法进行性能优化的，例如 Vec 的 iter() 方法会根据 size_hint 的返回值来决定是否使用 memcpy 来提高性能。
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let len = (self.end as usize - self.start as usize) / mem::size_of::<T>();
-        (len, Some(len))
+        self.iter.size_hint()
     }
 }
 
 // 向后迭代
 impl<T> DoubleEndedIterator for MyIntoIter<T> {
     fn next_back(&mut self) -> Option<T> {
-        if self.start == self.end {
-            None
-        } else {
-            unsafe {
-                self.end = self.end.offset(-1);
-                Some(ptr::read(self.end))
-            }
-        }
+        self.iter.next_back()
     }
 }
 
@@ -271,9 +331,11 @@ impl<T> Drop for MyIntoIter<T> {
     fn drop(&mut self) {
         if self._buf.cap != 0 {
             // 将剩下的元素drop
-            println!("MyIntoIter要开始释放内存咯！");
+            //println!("MyIntoIter要开始释放内存咯！");
             //我们只需要确保 Vec 中所有元素都被读取了，
-            for _ in &mut *self { println!("正在释放未读取元素的内存！");}
+            for _ in &mut *self { println!("MyIntoIter正在释放未读取元素的内存！");}
+
+            println!("MyIntoIter已经释放所有元素的内存！");
 
             // 释放内存的操作将由 RawVec 的 Drop 负责
                 // let layout = Layout::array::<T>(self._buf.cap).unwrap();
@@ -287,15 +349,35 @@ impl<T> Drop for MyIntoIter<T> {
 
 struct Drain<'a, T> {
     vec: PhantomData<&'a mut Vec<T>>,
-    start: usize,
-    end: usize,
+    iter: RawValIter<T>,
+        // start: usize,
+        // end: usize,
+}
+
+impl<'a, T> Iterator for Drain<'a, T> {
+    type Item = T;
+    fn next(&mut self) -> Option<T> { self.iter.next() }
+    fn size_hint(&self) -> (usize, Option<usize>) { self.iter.size_hint() }
+}
+
+impl<'a, T> DoubleEndedIterator for Drain<'a, T> {
+    fn next_back(&mut self) -> Option<T> { self.iter.next_back() }
+}
+
+impl<'a, T> Drop for Drain<'a, T> {
+    fn drop(&mut self) {
+        for _ in &mut *self {
+            println!("Drain正在释放未读取元素的内存！");
+        }
+        println!("Drain已经释放所有元素的内存！");
+    }
 }
 
 fn main() {
     println!("----------------------------------------12345. new、push、pop、drop、deref ------------------------------------");
     
-    {
-        println!("---------------------------------------- new、push、pop ------------------------------------");
+    println!("---------------------------------------- new、push、pop ------------------------------------");
+    { 
         let mut v = MyVec::new(); // 创建一个空的 MyVec
 
         // 添加元素
@@ -337,8 +419,8 @@ fn main() {
 
     }
 
-    {
-        println!("--------------------------------------- deref、drop ----------------------------------------");
+    println!("--------------------------------------- deref、drop ----------------------------------------");
+    {   
         let mut inter_v = MyVec::new();
         inter_v.push("hello".to_string());
         inter_v.push(",".to_string());
@@ -399,8 +481,8 @@ fn main() {
 
     }
     
+    println!("-----------------------------------------------6. insert and remove -----------------------------------------------");
     {
-        println!("-----------------------------------------------6. insert and remove -----------------------------------------------");
         // 插入和删除元素
         let mut v_6 = MyVec::new();
         v_6.push(1);
@@ -420,21 +502,81 @@ fn main() {
         println!("After remove: {:?}", v_6); //After remove: MyVec { ptr: 0x2259113c810, len: 4, cap: 8 }，因为没有使用调用了如 shrink_to_fit 的方法，所以不会缩减 Vec 的内存容量
     }
 
+    println!("-----------------------------------------------7. IntoIter -----------------------------------------------");
     {
-        println!("-----------------------------------------------7. IntoIter -----------------------------------------------");
-        let mut v_7 = MyVec::new();
-        v_7.push("hello".to_string());
-        v_7.push(",".to_string());
-        v_7.push("world".to_string());
-        v_7.push("!".to_string());
+        {
+            println!("--------------------遍历全部-------------------");
+            let mut v_7 = MyVec::new();
+            v_7.push("hello".to_string());
+            v_7.push(",".to_string());
+            v_7.push("world".to_string());
+            v_7.push("!".to_string());
 
-        let v_7_iter = v_7.into_iter();
-        for item in v_7_iter {
-            println!("{}", item);
-            if item == "world".to_string() {
-                break;
+            let v_7_iter = v_7.into_iter();
+            for item in v_7_iter {
+                println!("{}", item);
+                // if item == "world".to_string() {
+                //     break;
+                // }
+            }
+        }
+
+        {
+            println!("--------------------不遍历全部-------------------");
+            let mut v_7 = MyVec::new();
+            v_7.push("hello".to_string());
+            v_7.push(",".to_string());
+            v_7.push("world".to_string());
+            v_7.push("!".to_string());
+
+            let v_7_iter = v_7.into_iter();
+            for item in v_7_iter {
+                println!("{}", item);
+                if item == "world".to_string() {
+                    break;
+                }
             }
         }
     }
 
+    println!("-----------------------------------------------9. Drain -----------------------------------------------");
+    {
+
+        {
+            println!("--------------------遍历全部-------------------");
+            let mut v_9 = MyVec::new();
+            v_9.push("hello".to_string());
+            v_9.push(",".to_string());
+            v_9.push("world".to_string());
+            v_9.push("!".to_string());
+
+            let mut drain = v_9.drain();
+            for item in &mut drain {
+                println!("{}", item);
+                // if item == "world".to_string() {
+                //     break;
+                // }
+            }
+        }
+            
+        {
+            println!("--------------------不遍历全部-------------------");
+            let mut v_9 = MyVec::new();
+            v_9.push("hello".to_string());
+            v_9.push(",".to_string());
+            v_9.push("world".to_string());
+            v_9.push("!".to_string());
+
+            let mut drain = v_9.drain();
+            for item in &mut drain {
+                println!("{}", item);
+                if item == "world".to_string() {
+                    break;
+                }
+            }
+
+            //当 `Drain` 结构体的 `drop` 函数被调用时，它会通过 `next()` 方法继续遍历剩余未被处理的元素。在你的代码中，如果迭代在处理 `'world'` 之后中断，那么 `Drain` 的 `drop` 方法会继续处理 `'!'` 元素。这个过程发生在 `Drain` 结构体生命周期结束时，即在其作用域结束时自动调用 `drop`。
+            //因此，当控制流回到 `MyVec<T>` 的 `drop` 函数时，`len` 已经被设置为 0（因为 `Drain` 的开始就将 `len` 设置为 0），所以 `MyVec<T>` 的 `drop` 函数中调用的 `pop` 方法实际上不会执行任何操作，因为它会立即因为 `len` 是 0 而返回 `None`。这意味着 `MyVec<T>` 中已经没有元素可以 `pop`，因为所有元素都已经在 `Drain` 中被处理了。这种设计确保了即使部分元素没有在主循环中被显式消费，也不会发生内存泄漏，同时也防止了双重释放的问题。
+        }
+    }
 }
