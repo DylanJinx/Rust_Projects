@@ -16,15 +16,22 @@ unsafe impl<T: Sync> Sync for RawVec<T> {}
 impl<T> RawVec<T> {
     pub fn new() -> Self {
         // 暂时不支持 ZST：Zero Sized Type
-        assert!(mem::size_of::<T>() != 0, "TODO: implement ZST support");
+        // assert!(mem::size_of::<T>() != 0, "TODO: implement ZST support");
+
+        // 支持 ZST
+        let cap = if mem::size_of::<T>() == 0 { usize::MAX } else { 0 };
 
         RawVec {
             ptr: NonNull::dangling(),
-            cap: 0,
+            cap: cap,
         }
     }
 
     fn grow(&mut self) {
+
+        // 当T为ZST时，size_of::<T>() == 0，这里会panic
+        assert!(mem::size_of::<T>() != 0, "capacity overflow");
+
         // 保证新申请的内存没有超出 isize 的最大值
         let new_cap = if self.cap == 0 {
             1
@@ -59,7 +66,11 @@ impl<T> RawVec<T> {
 
 impl<T> Drop for RawVec<T> {
     fn drop(&mut self) {
-        if self.cap != 0 {
+
+        // elem_size = 0 时，说明T为ZST，不需要释放内存
+        let elem_size = mem::size_of::<T>();
+
+        if self.cap != 0 && elem_size != 0 {
             println!("RawVec要开始释放内存咯！");
             let layout = Layout::array::<T>(self.cap).unwrap();
             unsafe {
@@ -79,7 +90,7 @@ impl<T> RawValIter<T> {
     unsafe fn new(slice: &MyVec<T>) -> Self {
         RawValIter {
             start: slice.as_ptr(),
-            end: if slice.cap() == 0 {
+            end: if slice.len() == 0 {
                 slice.ptr()
             } else {
                 slice.as_ptr().add(slice.len())
@@ -574,7 +585,6 @@ fn main() {
                     break;
                 }
             }
-
             //当 `Drain` 结构体的 `drop` 函数被调用时，它会通过 `next()` 方法继续遍历剩余未被处理的元素。在你的代码中，如果迭代在处理 `'world'` 之后中断，那么 `Drain` 的 `drop` 方法会继续处理 `'!'` 元素。这个过程发生在 `Drain` 结构体生命周期结束时，即在其作用域结束时自动调用 `drop`。
             //因此，当控制流回到 `MyVec<T>` 的 `drop` 函数时，`len` 已经被设置为 0（因为 `Drain` 的开始就将 `len` 设置为 0），所以 `MyVec<T>` 的 `drop` 函数中调用的 `pop` 方法实际上不会执行任何操作，因为它会立即因为 `len` 是 0 而返回 `None`。这意味着 `MyVec<T>` 中已经没有元素可以 `pop`，因为所有元素都已经在 `Drain` 中被处理了。这种设计确保了即使部分元素没有在主循环中被显式消费，也不会发生内存泄漏，同时也防止了双重释放的问题。
         }
