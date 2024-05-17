@@ -2,6 +2,7 @@ use std::ptr::{self, NonNull};
 use std::mem::{self, ManuallyDrop};
 use std::alloc::{self, Layout};
 use std::ops::{Deref, DerefMut};
+use std::marker::PhantomData;
 
 #[derive(Debug)]
 pub struct RawVec<T> {
@@ -283,6 +284,12 @@ impl<T> Drop for MyIntoIter<T> {
     }
 }
 
+
+struct Drain<'a, T> {
+    vec: PhantomData<&'a mut Vec<T>>,
+    start: usize,
+    end: usize,
+}
 
 fn main() {
     println!("----------------------------------------12345. new、push、pop、drop、deref ------------------------------------");
