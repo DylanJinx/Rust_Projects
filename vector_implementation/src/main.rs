@@ -107,16 +107,22 @@ impl<T> Iterator for RawValIter<T> {
             None
         } else {
             unsafe {
-                let result = ptr::read(self.start);
-                self.start = self.start.offset(1);
-                Some(result)
+                if mem::size_of::<T>() == 0 {
+                    self.start = (self.start as usize + 1) as *const _;
+                    Some(ptr::read(NonNull::dangling().as_ptr()))
+                } else {
+                    let result = ptr::read(self.start);
+                    self.start = self.start.offset(1);
+                    Some(result)
+                }
             }
         }
     }
 
     // size_hint 方法返回一个元组，包含了迭代器的最小和最大元素数量的估计值。这个方法是为了帮助标准库中的一些方法进行性能优化的，例如 Vec 的 iter() 方法会根据 size_hint 的返回值来决定是否使用 memcpy 来提高性能。
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let len = (self.end as usize - self.start as usize) / mem::size_of::<T>();
+        let elem_size = mem::size_of::<T>();
+        let len = (self.end as usize - self.start as usize) / if elem_size == 0 {1} else { elem_size };
         (len, Some(len))
     }
 }
@@ -128,8 +134,13 @@ impl<T> DoubleEndedIterator for RawValIter<T> {
             None
         } else {
             unsafe {
-                self.end = self.end.offset(-1);
-                Some(ptr::read(self.end))
+                if mem::size_of::<T>() == 0 {
+                    self.end = (self.end as usize - 1) as *const _;
+                    Some(ptr::read(NonNull::dangling().as_ptr()))
+                } else {
+                    self.end = self.end.offset(-1);
+                    Some(ptr::read(self.end))
+                }
             }
         }
     }
