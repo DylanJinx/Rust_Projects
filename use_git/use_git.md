@@ -52,4 +52,10 @@ Here are some Rust projects
      git push -u origin main
      ```
 
-按照这些步骤，你的 Rust 项目就应该成功上传到你的 GitHub 仓库了。如果在过程中遇到任何问题，可以根据错误信息寻求具体的解决办法。
+# 实际使用
+
+在 Rust_Projects 目录下进行:
+git add .
+git status
+git commit -m "命名"
+git push
