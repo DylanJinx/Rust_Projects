@@ -1,6 +1,9 @@
 use std::fs;
 use std::error::Error; // 任何实现了 Error trait 的类型都可以使用 dyn Error 作为返回值
 
+mod search;
+use search::search;
+
 pub struct Config {
     pub query: String,
     pub file_path: String,
@@ -49,13 +52,3 @@ Pick three.";
     }
 }
 
-pub fn search<'a>(query: &str, contents: &'a str) -> Vec<&'a str> {
-    let mut results = Vec::new();
-
-    for line in contents.lines() {
-        if line.contains(query) {
-            results.push(line);
-        }
-    }
-    results
-}
