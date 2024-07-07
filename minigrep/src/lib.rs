@@ -4,9 +4,15 @@ use std::error::Error; // 任何实现了 Error trait 的类型都可以使用 d
 mod search;
 use search::search;
 
+mod case_insensitive;
+use case_insensitive::search_case_insensitive;
+
+use std::env;
+
 pub struct Config {
     pub query: String,
     pub file_path: String,
+    pub ignore_case: bool,
 }
 
 impl Config {
@@ -19,16 +25,29 @@ impl Config {
 
         let query = args[1].clone();
         let file_path = args[2].clone();
-    
-        Ok(Config {query, file_path})
+
+        let ignore_case = env::var("IGNORE_CASE").map_or(false, |var| var.eq("1"));
+        let ignore_case_flag = env::var("IGNORE_CASE").ok();
+        // let ignore_case = match ignore_case_flag.as_ref().map(String::as_ref) {
+        //     None => false,
+        //     Some("0") => false,
+        //     Some(_) => true
+        // } 
+
+        Ok(Config {query, file_path, ignore_case})
     }
 }
 
 pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
     let contents = fs::read_to_string(config.file_path)?;  // 本应能够读取文件
 
-    // 通过search函数在contents中查找query，然后打印出来
-    for line in search(&config.query, &contents) {
+    let results = if config.ignore_case {
+        search_case_insensitive(&config.query, &contents)
+    } else {
+        search(&config.query, &contents)
+    };
+
+    for line in results {
         println!("{}", line);
     }
 
@@ -49,6 +68,30 @@ Pick three.";
     
         assert_eq!(vec!["safe, fast, productive."], search(query, contents));
     
+    }
+
+    #[test]
+    fn case_sensitive() {
+        let query = "duct";
+        let contents = "\
+Rust:
+safe, fast, productive.
+Pick three.
+Duct tape.";
+    
+        assert_eq!(vec!["safe, fast, productive."], search(query, contents));
+    }
+
+    #[test]
+    fn case_insensitive() {
+        let query = "rUsT";
+        let contents = "\
+Rust:
+safe, fast, productive.
+Pick three.
+Trust me.";
+    
+        assert_eq!(vec!["Rust:", "Trust me."], search_case_insensitive(query, contents));
     }
 }
 
