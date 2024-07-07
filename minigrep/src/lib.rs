@@ -26,13 +26,25 @@ impl Config {
         let query = args[1].clone();
         let file_path = args[2].clone();
 
-        let ignore_case = env::var("IGNORE_CASE").map_or(false, |var| var.eq("1"));
-        let ignore_case_flag = env::var("IGNORE_CASE").ok();
-        // let ignore_case = match ignore_case_flag.as_ref().map(String::as_ref) {
-        //     None => false,
-        //     Some("0") => false,
-        //     Some(_) => true
-        // } 
+        // 首先检查环境变量中是否有IGNORE_CASE
+        let ignore_case = match env::var("IGNORE_CASE") {
+            // 如果有，就使用环境变量中的值
+            Ok(flag) => match flag.as_str() {
+                "0" => false,
+                _ => true,
+            },
+            // 如果没有，就检查命令行参数中是否有ig, igc, ignore, ignore_case
+            Err(_) => {
+                match args.get(3) {
+                    Some(arg) => match arg.as_str() {
+                        "ig" | "igc" | "ignore" | "ignore_case" | "ignore_case" | "IGNORE_CASE" => true,
+                        _ => false,
+                    },
+                    None => false,
+                }
+            }
+        };
+
 
         Ok(Config {query, file_path, ignore_case})
     }
