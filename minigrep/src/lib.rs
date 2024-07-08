@@ -37,7 +37,7 @@ impl Config {
             Err(_) => {
                 match args.get(3) {
                     Some(arg) => match arg.as_str() {
-                        "ig" | "igc" | "ignore" | "ignore_case" | "ignore_case" | "IGNORE_CASE" => true,
+                        "ig" | "igc" | "ignore" | "ignore_case" | "IGNORE_CASE" => true,
                         _ => false,
                     },
                     None => false,

@@ -1,19 +1,11 @@
-warning: hard linking files in the incremental compilation cache failed. copying files instead. consider moving the cache directory to a file system which supports hard linking in session dir `/Volumes/T7 Shield/Code_apps/MacBook_github/Rust_Projects/minigrep/target/debug/incremental/minigrep-2eigo2eckz5r0/s-gxumr0fi3j-1ge82lm-working`
-
-warning: unreachable pattern
-  --> src/lib.rs:40:67
-   |
-40 |                         "ig" | "igc" | "ignore" | "ignore_case" | "ignore_case" | "IGNORE_CASE" => true,
-   |                                                                   ^^^^^^^^^^^^^
-   |
-   = note: `#[warn(unreachable_patterns)]` on by default
-
-warning: `minigrep` (lib) generated 2 warnings
    Compiling minigrep v0.1.0 (/Volumes/T7 Shield/Code_apps/MacBook_github/Rust_Projects/minigrep)
-warning: hard linking files in the incremental compilation cache failed. copying files instead. consider moving the cache directory to a file system which supports hard linking in session dir `/Volumes/T7 Shield/Code_apps/MacBook_github/Rust_Projects/minigrep/target/debug/incremental/minigrep-gtbtk5lt8j4e/s-gxun3qiatf-1cihkp-working`
+warning: hard linking files in the incremental compilation cache failed. copying files instead. consider moving the cache directory to a file system which supports hard linking in session dir `/Volumes/T7 Shield/Code_apps/MacBook_github/Rust_Projects/minigrep/target/debug/incremental/minigrep-2eigo2eckz5r0/s-gxun7hehrl-1c8zlw1-working`
+
+warning: `minigrep` (lib) generated 1 warning
+warning: hard linking files in the incremental compilation cache failed. copying files instead. consider moving the cache directory to a file system which supports hard linking in session dir `/Volumes/T7 Shield/Code_apps/MacBook_github/Rust_Projects/minigrep/target/debug/incremental/minigrep-gtbtk5lt8j4e/s-gxun7hkp6m-1f8rv9x-working`
 
 warning: `minigrep` (bin "minigrep") generated 1 warning
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.33s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.55s
      Running `target/debug/minigrep to poem.txt ig`
 Running command: target/debug/minigrep to poem.txt ig
 Environment variable IGNORE_CASE: 0
