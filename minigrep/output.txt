@@ -1,0 +1,5 @@
+Running command: target/debug/minigrep to poem.txt ig
+Environment variable IGNORE_CASE: 0
+Searching for "to" in file poem.txt: 
+Are you nobody, too?
+How dreary to be somebody!

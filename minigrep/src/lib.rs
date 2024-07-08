@@ -66,6 +66,21 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+// 打印命令行参数和环境变量信息
+pub fn print_startup_info() {
+    // 获取环境变量IGNORE_CASE的值
+    let ignore_case_value = env::var("IGNORE_CASE").unwrap_or_else(|_| "not set".to_string());
+    // 获取命令行参数并将其组合成一个字符串
+    let command_line = env::args().collect::<Vec<String>>().join(" ");
+
+    // 打印命令和环境变量信息到标准输出和标准错误
+    println!("Running command: {}", command_line);
+    println!("Environment variable IGNORE_CASE: {}", ignore_case_value);
+    eprintln!("Running command: {}", command_line);
+    eprintln!("Environment variable IGNORE_CASE: {}", ignore_case_value);
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
